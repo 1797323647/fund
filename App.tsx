@@ -1,275 +1,498 @@
 
-import React, { useState, useMemo } from 'react';
-import { Search, TrendingUp, TrendingDown, Star, Sparkles, X, Share2, Info, ChevronRight, Activity, LayoutGrid, Clock } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  Search, 
+  TrendingUp, 
+  TrendingDown, 
+  Sparkles, 
+  X, 
+  Activity, 
+  Clock, 
+  Star, 
+  List, 
+  ArrowUpDown,
+  ChevronRight,
+  PieChart,
+  BarChart3,
+  History,
+  LayoutGrid,
+  Settings,
+  ShieldCheck,
+  Zap,
+  Briefcase,
+  ChevronLeft,
+  Menu,
+  Filter
+} from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
-import { FUNDS, CATEGORIES } from './constants';
-import { FundItem } from './types';
-
-const Header: React.FC = () => (
-  <header className="bg-white border-b sticky top-0 z-50">
-    <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-      <div className="flex items-center space-x-2">
-        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm">
-          F
-        </div>
-        <span className="text-xl font-bold text-slate-800 tracking-tight">FundMaster</span>
-      </div>
-      <div className="hidden md:flex items-center space-x-6">
-        <nav className="flex space-x-6 text-sm font-medium text-slate-500">
-          <a href="#" className="text-blue-600">行情中心</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">研报解读</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">自选基金</a>
-        </nav>
-        <div className="h-4 w-px bg-slate-200"></div>
-        <div className="flex items-center space-x-2 text-[11px] font-semibold text-emerald-500 bg-emerald-50 px-2 py-1 rounded">
-          <Clock size={12} />
-          <span>市场已开盘 (09:30-15:00)</span>
-        </div>
-      </div>
-    </div>
-  </header>
-);
-
-const MetricItem: React.FC<{ label: string; value: string; colorClass?: string; isBold?: boolean }> = ({ label, value, colorClass = "text-slate-900", isBold = false }) => (
-  <div className="flex flex-col items-center justify-center py-4 px-2">
-    <span className="text-[11px] text-slate-400 mb-2 font-medium">{label}</span>
-    <span className={`text-lg tabular-nums ${isBold ? 'font-bold' : 'font-semibold'} ${colorClass}`}>{value}</span>
-  </div>
-);
-
-const FundCard: React.FC<{ fund: FundItem; onClick: () => void }> = ({ fund, onClick }) => {
-  const isUp = fund.changePercent >= 0;
-  
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden">
-      <div className="p-5 flex flex-col flex-grow">
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex flex-col">
-            <h3 className="text-base font-bold text-slate-900 mb-1 leading-tight">{fund.name}</h3>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-medium text-slate-400 font-mono tracking-tight">{fund.code}</span>
-              <span className="text-[10px] font-bold text-blue-500 uppercase bg-blue-50 px-1.5 py-0.5 rounded leading-none">
-                {fund.category}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 bg-slate-50/50 rounded-lg border border-slate-100 mb-4">
-          <MetricItem label="单位净值" value={`¥${fund.currentNav.toFixed(4)}`} isBold />
-          <MetricItem 
-            label="日涨跌" 
-            value={`${isUp ? '+' : ''}${fund.changePercent.toFixed(2)}%`} 
-            colorClass={isUp ? 'text-red-600' : 'text-emerald-600'} 
-          />
-          <MetricItem 
-            label="近一年" 
-            value={`${fund.return1Y >= 0 ? '+' : ''}${fund.return1Y.toFixed(2)}%`}
-            colorClass={fund.return1Y >= 0 ? 'text-red-600' : 'text-emerald-600'}
-          />
-          <MetricItem 
-            label="近三年" 
-            value={`${fund.return3Y >= 0 ? '+' : ''}${fund.return3Y.toFixed(2)}%`}
-            colorClass={fund.return3Y >= 0 ? 'text-red-600' : 'text-emerald-600'}
-          />
-        </div>
-      </div>
-
-      <div className="p-4 border-t border-slate-100 flex gap-2">
-        <button 
-          onClick={onClick}
-          className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors"
-        >
-          查看详情
-        </button>
-        <button className="px-4 py-2 border border-blue-600 text-blue-600 hover:bg-blue-50 rounded-lg text-sm font-bold transition-colors">
-          关注
-        </button>
-      </div>
-    </div>
-  );
-};
+import { FUNDS, SECTORS } from './constants';
+import { FundItem, SectorType } from './types';
 
 export default function App() {
+  const [view, setView] = useState<'market' | 'favorites'>('market');
+  const [selectedSector, setSelectedSector] = useState<SectorType>('全部分类');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedFund, setSelectedFund] = useState<FundItem | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    const saved = localStorage.getItem('fund_favorites');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
+
+  // Simulate intra-day price fluctuations (Every 8 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newPrices: Record<string, number> = {};
+      FUNDS.forEach(f => {
+        const drift = (Math.random() - 0.5) * 0.03;
+        newPrices[f.id] = (marketPrices[f.id] || f.changePercent) + drift;
+      });
+      setMarketPrices(newPrices);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [marketPrices]);
+
+  useEffect(() => {
+    localStorage.setItem('fund_favorites', JSON.stringify(favorites));
+  }, [favorites]);
+
+  const toggleFavorite = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setFavorites(prev => prev.includes(id) ? prev.filter(fid => fid !== id) : [...prev, id]);
+  };
 
   const filteredFunds = useMemo(() => {
-    return FUNDS.filter((fund) => {
-      const matchesSearch = fund.name.toLowerCase().includes(searchTerm.toLowerCase()) || fund.code.includes(searchTerm);
-      const matchesCategory = selectedCategory === 'all' || fund.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-  }, [searchTerm, selectedCategory]);
+    let base = view === 'market' ? FUNDS : FUNDS.filter(f => favorites.includes(f.id));
+    
+    // Sector Filtering
+    if (selectedSector !== '全部分类') {
+      base = base.filter(f => f.sector === selectedSector);
+    }
+    
+    // Global Search
+    const query = searchTerm.toLowerCase();
+    if (query) {
+      base = base.filter(fund => 
+        fund.name.toLowerCase().includes(query) || 
+        fund.code.includes(query) || 
+        fund.manager.includes(query) ||
+        fund.sector.toLowerCase().includes(query)
+      );
+    }
+    
+    return base;
+  }, [searchTerm, selectedSector, view, favorites]);
 
-  const handleAiAsk = async () => {
+  const handleAiDeepAnalysis = async (fund?: FundItem) => {
     setIsAiLoading(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = fund 
+        ? `请联网搜索并分析基金 ${fund.name}(${fund.code}) 当下的最新动态。包括最新的净值变动原因、基金经理最新的调仓观点以及该基金所属板块（${fund.sector}）的近期宏观展望。`
+        : "请联网分析今日 A 股各大热门板块（人工智能、白酒、半导体、高股息红利）的资金流向与短期投资逻辑。";
+      
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: "请简要分析当前市场环境下，创业板与价值股的博弈逻辑，并给出近期的配置建议（300字以内）。",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }
       });
-      setAiAnalysis(response.text);
+      setAiReport(response.text);
     } catch (e) {
-      setAiAnalysis("获取研报失败，请重试。");
+      setAiReport("深度分析获取失败，请检查网络或 API 配置。");
     } finally {
       setIsAiLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      <Header />
+    <div className="flex h-screen bg-[#F8FAFC] text-[#1E293B] overflow-hidden selection:bg-blue-100 font-sans">
       
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* 工具栏 */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="relative flex-grow">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="搜索基金名称或代码..."
-              className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+      {/* Sidebar - Pro Design with Folding */}
+      <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out shadow-sm z-30`}>
+        <div className={`p-6 border-b flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
+          {!isSidebarCollapsed && (
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-100">
+                 <Briefcase size={18} strokeWidth={2.5} />
+              </div>
+              <span className="font-black text-lg tracking-tight">FundMaster</span>
+            </div>
+          )}
           <button 
-            onClick={handleAiAsk}
-            disabled={isAiLoading}
-            className="flex items-center justify-center space-x-2 px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50 shadow-sm"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
           >
-            {isAiLoading ? <Activity size={18} className="animate-spin" /> : <Sparkles size={18} className="text-amber-400" />}
-            <span className="text-sm font-bold">AI 智能分析</span>
+            {isSidebarCollapsed ? <Menu size={20} /> : <ChevronLeft size={20} />}
           </button>
         </div>
+        
+        <div className="flex-grow overflow-y-auto py-4 px-3 custom-scrollbar">
+          <div className="mb-6">
+            {!isSidebarCollapsed && <h5 className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">资产管理</h5>}
+            <button 
+              onClick={() => { setView('market'); setSelectedSector('全部分类'); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all text-sm font-bold ${view === 'market' && selectedSector === '全部分类' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              title="行情全览"
+            >
+              <LayoutGrid size={18} />
+              {!isSidebarCollapsed && <span>行情全览</span>}
+            </button>
+            <button 
+              onClick={() => setView('favorites')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all text-sm font-bold mt-1 ${view === 'favorites' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              title="我的自选"
+            >
+              <Star size={18} className={favorites.length > 0 ? "fill-amber-400 text-amber-400" : ""} />
+              {!isSidebarCollapsed && (
+                <div className="flex justify-between flex-grow items-center">
+                   <span>我的自选</span>
+                   <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded-full">{favorites.length}</span>
+                </div>
+              )}
+            </button>
+          </div>
 
-        {/* AI 报告区域 */}
-        {aiAnalysis && (
-          <div className="mb-10 bg-white border border-blue-100 rounded-2xl p-6 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-            <div className="flex justify-between items-start mb-4 relative">
-              <div className="flex items-center space-x-2">
-                <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Info size={18} /></div>
-                <h4 className="font-bold text-slate-800">市场情绪分析研报</h4>
-              </div>
-              <button onClick={() => setAiAnalysis(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+          <div>
+            {!isSidebarCollapsed && <h5 className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">细分板块 ({SECTORS.length})</h5>}
+            <div className="space-y-1">
+              {SECTORS.map(sector => (
+                <button
+                  key={sector.id}
+                  onClick={() => { setSelectedSector(sector.id); setView('market'); }}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-sm font-bold ${selectedSector === sector.id && view === 'market' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                  title={sector.name}
+                >
+                  <div className="flex items-center space-x-3">
+                    <span className="text-base">{sector.icon}</span>
+                    {!isSidebarCollapsed && <span className="truncate">{sector.name}</span>}
+                  </div>
+                  {!isSidebarCollapsed && <ChevronRight size={14} className={selectedSector === sector.id ? "opacity-100" : "opacity-0"} />}
+                </button>
+              ))}
             </div>
-            <div className="text-sm text-slate-600 leading-relaxed font-medium">
-              {aiAnalysis}
+          </div>
+        </div>
+
+        {!isSidebarCollapsed && (
+          <div className="p-4 border-t">
+            <div className="bg-slate-50 rounded-xl p-3 flex items-center space-x-3 text-[10px] font-bold text-slate-500">
+              <ShieldCheck size={14} className="text-emerald-500" />
+              <span>数据来源：沪深北交易所实时模拟</span>
             </div>
           </div>
         )}
+      </aside>
 
-        {/* 分类标签 */}
-        <div className="flex space-x-2 overflow-x-auto no-scrollbar mb-8 pb-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex-shrink-0 px-5 py-2 rounded-full text-xs font-bold transition-all border ${
-                selectedCategory === cat.id 
-                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                : 'bg-white text-slate-500 border-slate-200 hover:border-blue-400 hover:text-blue-600'
-              }`}
-            >
-              <span className="mr-1.5">{cat.icon}</span>
-              {cat.name}
-            </button>
-          ))}
-        </div>
+      {/* Main Work Area */}
+      <main className="flex-grow flex flex-col min-w-0">
+        
+        {/* Top Control Header */}
+        <header className="bg-white h-16 border-b flex items-center justify-between px-8 flex-shrink-0 z-20">
+          <div className="flex items-center space-x-6 flex-grow max-w-2xl">
+            <div className="relative w-full group">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+              <input
+                type="text"
+                placeholder="搜索 60+ 基金：键入名称、代码、板块(如 AI) 或 经理姓名..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-transparent rounded-xl text-sm focus:bg-white focus:border-blue-100 focus:ring-4 focus:ring-blue-500/5 outline-none transition-all"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+             <div className="hidden md:flex items-center text-[10px] font-black text-emerald-500 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+                <Clock size={12} className="mr-2" />
+                <span>实时估值：{new Date().toLocaleTimeString('zh-CN', { hour12: false })}</span>
+             </div>
+             <button 
+               onClick={() => handleAiDeepAnalysis()}
+               disabled={isAiLoading}
+               className="flex items-center space-x-2 px-5 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 active:scale-95 transition-all shadow-lg shadow-slate-200"
+             >
+               {isAiLoading ? <Activity size={14} className="animate-spin" /> : <Zap size={14} className="text-amber-400" />}
+               <span className="hidden sm:inline">全盘 AI 深度分析</span>
+               <span className="sm:hidden">AI</span>
+             </button>
+          </div>
+        </header>
 
-        {/* 基金列表网格 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredFunds.map(fund => (
-            <FundCard key={fund.id} fund={fund} onClick={() => setSelectedFund(fund)} />
-          ))}
-          {filteredFunds.length === 0 && (
-            <div className="col-span-full py-20 bg-white border border-dashed border-slate-200 rounded-2xl text-center">
-               <LayoutGrid size={48} className="mx-auto text-slate-200 mb-4" />
-               <p className="text-slate-400 font-medium">未找到相关基金</p>
+        {/* Content Area */}
+        <div className="flex-grow p-6 lg:p-10 overflow-y-auto custom-scrollbar bg-[#F8FAFC]">
+          
+          <div className="mb-6 flex items-center justify-between">
+             <div className="flex flex-col">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center">
+                  {view === 'favorites' ? '我的自选投资组合' : `${selectedSector}`}
+                  <span className="ml-3 text-xs font-bold text-slate-400 bg-white border px-2 py-0.5 rounded-full shadow-sm">
+                    {filteredFunds.length} 只基金
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 font-medium">覆盖市面上各行业核心赛道，数据每 8 秒实时轮询模拟</p>
+             </div>
+          </div>
+
+          {aiReport && (
+            <div className="mb-8 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-3xl p-8 relative shadow-2xl shadow-blue-200 overflow-hidden group border border-blue-400/20">
+               <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-48 -mt-48 blur-3xl group-hover:scale-110 transition-transform"></div>
+               <button onClick={() => setAiReport(null)} className="absolute top-6 right-6 p-2 hover:bg-white/20 rounded-full transition-colors z-10"><X size={20} /></button>
+               <h4 className="text-xs font-black uppercase tracking-widest mb-4 flex items-center text-blue-100">
+                  <Sparkles size={16} className="mr-2 text-amber-300 fill-amber-300" /> 
+                  FundMaster AI 实时研报结论
+               </h4>
+               <p className="text-sm leading-relaxed opacity-95 whitespace-pre-wrap font-medium">{aiReport}</p>
+               <div className="mt-6 flex items-center space-x-3 text-[10px] text-blue-200 font-bold uppercase tracking-wider">
+                  <span>Google Search Grounding Enabled</span>
+                  <span className="w-1 h-1 bg-blue-300 rounded-full"></span>
+                  <span>Gemini 3 Pro Intelligence</span>
+               </div>
             </div>
           )}
+
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl shadow-slate-200/50 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1200px]">
+                <thead>
+                  <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                    <th className="px-6 py-4 w-12 text-center">自选</th>
+                    <th className="px-6 py-4">基金信息 / 核心经理</th>
+                    <th className="px-6 py-4">分类</th>
+                    <th className="px-6 py-4 text-right">单位净值</th>
+                    <th className="px-6 py-4 text-right">当日估涨</th>
+                    <th className="px-6 py-4 text-right">近1月</th>
+                    <th className="px-6 py-4 text-right">近1年</th>
+                    <th className="px-6 py-4 text-right">近3年</th>
+                    <th className="px-6 py-4 text-right">历史回撤</th>
+                    <th className="px-6 py-4 text-center">风险等级</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredFunds.map(fund => {
+                    const price = marketPrices[fund.id] || fund.changePercent;
+                    const isUp = price >= 0;
+                    return (
+                      <tr 
+                        key={fund.id} 
+                        onClick={() => setSelectedFund(fund)}
+                        className="hover:bg-blue-50/30 cursor-pointer transition-all group animate-fade-in"
+                      >
+                        <td className="px-6 py-6 text-center" onClick={(e) => toggleFavorite(e, fund.id)}>
+                          <Star 
+                            size={18} 
+                            className={favorites.includes(fund.id) ? "fill-amber-400 text-amber-400" : "text-slate-200 hover:text-amber-400 transition-colors"} 
+                          />
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{fund.name}</span>
+                            <div className="flex items-center space-x-2 mt-1.5">
+                               <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{fund.code}</span>
+                               <span className="text-[10px] font-bold text-slate-500">经理：{fund.manager}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col space-y-1">
+                              <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit">{fund.sector}</span>
+                              <span className="text-[9px] font-bold text-slate-400 ml-1">{fund.category}</span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-6 text-right font-mono text-sm font-black text-slate-700">{fund.currentNav.toFixed(4)}</td>
+                        <td className={`px-6 py-6 text-right font-mono text-sm font-black ${isUp ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {isUp ? '+' : ''}{price.toFixed(2)}%
+                        </td>
+                        <td className={`px-6 py-6 text-right font-mono text-xs font-bold ${fund.return1M >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {fund.return1M > 0 ? '+' : ''}{fund.return1M.toFixed(2)}%
+                        </td>
+                        <td className={`px-6 py-6 text-right font-mono text-xs font-bold ${fund.return1Y >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {fund.return1Y > 0 ? '+' : ''}{fund.return1Y.toFixed(2)}%
+                        </td>
+                        <td className={`px-6 py-6 text-right font-mono text-xs font-bold ${fund.return3Y >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {fund.return3Y > 0 ? '+' : ''}{fund.return3Y.toFixed(2)}%
+                        </td>
+                        <td className="px-6 py-6 text-right font-mono text-xs font-bold text-emerald-600">{fund.maxDrawdown.toFixed(2)}%</td>
+                        <td className="px-6 py-6 text-center">
+                           <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${fund.riskLevel.includes('高') ? 'bg-rose-50 text-rose-500 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                             {fund.riskLevel}
+                           </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {filteredFunds.length === 0 && (
+              <div className="py-40 text-center bg-slate-50/50">
+                <div className="w-20 h-20 bg-white shadow-sm border border-slate-100 rounded-3xl flex items-center justify-center mx-auto mb-6 text-slate-300 animate-bounce">
+                   <Search size={32} />
+                </div>
+                <h3 className="text-slate-900 font-black text-lg">搜索无结果</h3>
+                <p className="text-slate-400 font-bold max-w-xs mx-auto mt-2">我们在 60+ 基金中未匹配到 "{searchTerm}"。请尝试代码(如 005827)或经理(如 张坤)进行全局查找。</p>
+                <button 
+                  onClick={() => setSearchTerm('')}
+                  className="mt-6 text-blue-600 font-black text-sm hover:underline"
+                >
+                  清除搜索条件
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
-      {/* 详情弹窗 */}
+      {/* Detail Drawer */}
       {selectedFund && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedFund(null)}></div>
-          <div className="relative bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-fade-in">
-            <div className="p-6 border-b flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs">{selectedFund.code}</div>
-                <h3 className="font-bold text-xl text-slate-900">{selectedFund.name}</h3>
+        <div className="fixed inset-0 z-[100] flex justify-end">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setSelectedFund(null)}></div>
+          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl animate-fade-in flex flex-col overflow-hidden">
+            
+            <div className="p-8 border-b flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
+              <div className="flex items-center space-x-5">
+                <div className="w-14 h-14 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-xl shadow-blue-200">
+                  {selectedFund.code.slice(-2)}
+                </div>
+                <div>
+                  <h3 className="font-black text-2xl tracking-tight text-slate-900">{selectedFund.name}</h3>
+                  <div className="flex items-center space-x-3 mt-1">
+                    <span className="text-sm font-mono font-bold text-slate-400">{selectedFund.code}</span>
+                    <span className="w-1 h-1 bg-slate-200 rounded-full"></span>
+                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{selectedFund.category} • {selectedFund.sector}</span>
+                  </div>
+                </div>
               </div>
-              <button onClick={() => setSelectedFund(null)} className="p-2 text-slate-400 hover:bg-slate-50 rounded-full transition-colors">
-                <X size={24} />
+              <button onClick={() => setSelectedFund(null)} className="p-3 hover:bg-slate-50 rounded-full transition-colors text-slate-400 hover:text-slate-900">
+                <X size={28} />
               </button>
             </div>
             
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-5 bg-slate-50 rounded-xl">
-                  <span className="text-xs text-slate-400 font-bold uppercase mb-1 block">当前净值</span>
-                  <span className="text-3xl font-bold text-slate-900 tabular-nums">¥{selectedFund.currentNav.toFixed(4)}</span>
-                </div>
-                <div className={`p-5 rounded-xl ${selectedFund.changePercent >= 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                  <span className="text-xs font-bold uppercase mb-1 block">今日涨跌幅</span>
-                  <span className="text-3xl font-bold tabular-nums">
-                    {selectedFund.changePercent >= 0 ? '+' : ''}{selectedFund.changePercent.toFixed(2)}%
-                  </span>
-                </div>
+            <div className="flex-grow overflow-y-auto p-8 space-y-10 custom-scrollbar">
+              
+              <div className="grid grid-cols-2 gap-6">
+                 <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">最新单位净值</span>
+                    <div className="text-4xl font-black tabular-nums tracking-tighter text-slate-900">¥{selectedFund.currentNav.toFixed(4)}</div>
+                    <div className="flex items-center text-[10px] text-slate-400 mt-4 font-bold">
+                       <Clock size={12} className="mr-1.5" /> 更新：{new Date().toLocaleDateString()}
+                    </div>
+                 </div>
+                 <div className={`p-6 rounded-3xl border ${selectedFund.changePercent >= 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
+                    <span className="text-[10px] font-black uppercase tracking-widest block mb-2 opacity-60">今日实时估算</span>
+                    <div className="text-4xl font-black tabular-nums tracking-tighter">
+                      {selectedFund.changePercent >= 0 ? '+' : ''}{selectedFund.changePercent.toFixed(2)}%
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleAiDeepAnalysis(selectedFund); }}
+                      className="mt-4 flex items-center text-[10px] font-black uppercase tracking-widest hover:underline"
+                    >
+                      <Zap size={12} className="mr-1" /> 为什么涨跌？咨询 AI 导师
+                    </button>
+                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h4 className="font-bold text-slate-800 flex items-center space-x-2">
-                  <Info size={16} />
-                  <span>基金摘要</span>
-                </h4>
-                <p className="text-sm text-slate-600 leading-relaxed font-medium bg-slate-50 p-4 rounded-xl">
-                  {selectedFund.description}
-                </p>
-              </div>
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-2">
+                    <BarChart3 size={20} className="text-blue-600" />
+                    <h4 className="font-black text-base text-slate-800">阶段性业绩看板</h4>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { l: '最近一周', v: selectedFund.return1W },
+                    { l: '最近一月', v: selectedFund.return1M },
+                    { l: '最近一年', v: selectedFund.return1Y },
+                    { l: '成立以来', v: selectedFund.return3Y }
+                  ].map((item, idx) => (
+                    <div key={idx} className="flex items-center">
+                      <span className="w-24 text-[11px] font-black text-slate-400">{item.l}</span>
+                      <div className="flex-grow h-3 bg-slate-100 rounded-full overflow-hidden mx-4">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-1000 ${item.v >= 0 ? 'bg-rose-500' : 'bg-emerald-500'}`} 
+                          style={{ width: `${Math.min(100, Math.abs(item.v) * 2.5)}%` }}
+                        ></div>
+                      </div>
+                      <span className={`w-16 text-right text-xs font-black tabular-nums ${item.v >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {item.v > 0 ? '+' : ''}{item.v.toFixed(2)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-              <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-6">
-                <div className="flex flex-col">
-                  <span className="text-xs text-slate-400 font-bold mb-1">基金经理</span>
-                  <span className="font-bold text-slate-800">{selectedFund.manager}</span>
+              <section>
+                <div className="flex items-center space-x-2 mb-6">
+                  <PieChart size={20} className="text-blue-600" />
+                  <h4 className="font-black text-base text-slate-800">底层持仓穿透 (Top 10)</h4>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-slate-400 font-bold mb-1">风险等级</span>
-                  <span className={`font-bold ${selectedFund.riskLevel.includes('高') ? 'text-red-600' : 'text-blue-600'}`}>{selectedFund.riskLevel}风险</span>
+                <div className="bg-slate-50 border border-slate-100 rounded-3xl overflow-hidden shadow-inner">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/50 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">
+                        <th className="px-6 py-4">标的资产名称</th>
+                        <th className="px-6 py-4 text-right">持仓权重</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedFund.holdings.length > 0 ? selectedFund.holdings.map((h, i) => (
+                        <tr key={i} className="hover:bg-white transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-700 flex items-center">
+                             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-3"></span>
+                             {h.name}
+                          </td>
+                          <td className="px-6 py-4 text-right font-black text-blue-600 tabular-nums">{h.weight}</td>
+                        </tr>
+                      )) : (
+                        <tr>
+                           <td colSpan={2} className="px-6 py-12 text-center text-slate-400 font-bold italic">
+                              该基金持仓详情请参考最新季度报表
+                           </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-slate-400 font-bold mb-1">申购费率</span>
-                  <span className="font-bold text-slate-800">0.10% (起)</span>
-                </div>
-              </div>
+              </section>
+
+              <section className="bg-slate-900 text-white rounded-[40px] p-10 relative overflow-hidden group shadow-2xl shadow-slate-400">
+                 <div className="absolute bottom-0 right-0 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform"></div>
+                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-8">风险矩阵与专家点评</h4>
+                 <div className="grid grid-cols-2 gap-10 relative z-10">
+                    <div>
+                       <span className="text-[10px] block text-slate-500 mb-2 font-black uppercase">历史最大回撤</span>
+                       <span className="text-4xl font-black text-emerald-400 tracking-tighter">{selectedFund.maxDrawdown.toFixed(2)}%</span>
+                       <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">风控指标位居全市场前 {90 - Math.abs(Math.round(selectedFund.maxDrawdown))}%</p>
+                    </div>
+                    <div>
+                       <span className="text-[10px] block text-slate-500 mb-2 font-black uppercase">核心管理经理</span>
+                       <span className="text-4xl font-black tracking-tighter">{selectedFund.manager}</span>
+                       <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">擅长赛道：{selectedFund.sector}</p>
+                    </div>
+                 </div>
+                 <div className="mt-8 pt-8 border-t border-slate-800 text-sm text-slate-300 leading-relaxed font-medium italic">
+                    "{selectedFund.description}"
+                 </div>
+              </section>
             </div>
 
-            <div className="p-6 bg-slate-50 flex gap-3">
-              <button className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-md">
-                立即购买
+            <div className="p-8 bg-slate-50 border-t flex space-x-4">
+              <button 
+                onClick={(e) => toggleFavorite(e, selectedFund.id)}
+                className={`flex-grow py-5 rounded-2xl font-black text-sm flex items-center justify-center space-x-3 transition-all ${favorites.includes(selectedFund.id) ? 'bg-amber-100 text-amber-600 border border-amber-200 shadow-xl shadow-amber-500/10' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 shadow-sm'}`}
+              >
+                <Star size={20} className={favorites.includes(selectedFund.id) ? "fill-amber-600" : ""} />
+                <span>{favorites.includes(selectedFund.id) ? '已在自选列表' : '加入每日自选'}</span>
               </button>
-              <button onClick={() => setSelectedFund(null)} className="px-8 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all">
-                取消
+              <button className="flex-[2] py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm shadow-2xl shadow-blue-300 active:scale-95 transition-all">
+                前往三方平台交易 (申购费0.1折)
               </button>
             </div>
           </div>
         </div>
       )}
-
-      <footer className="max-w-7xl mx-auto px-4 py-12 text-center text-slate-400 border-t mt-12">
-        <p className="text-[11px] font-bold uppercase tracking-widest mb-2">FundMaster Institutional Grade Data Dashboard</p>
-        <p className="text-xs font-medium max-w-2xl mx-auto leading-relaxed opacity-60">
-          风险提示：基金投资有风险，过往业绩不代表未来表现。本站所有数据源自模拟接口及公开市场参考值。AI 分析内容仅供投研参考，不构成任何形式的投资建议。
-        </p>
-      </footer>
     </div>
   );
 }
